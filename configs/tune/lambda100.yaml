@@ -1,0 +1,38 @@
+seed: 20261020
+
+dataset:
+  name: ETTh1
+  path: data/raw/ETTh1.csv
+  timestamp_column: date
+  target_columns: null
+  train_ratio: 0.7
+  validation_ratio: 0.1
+
+foundation:
+  name: chronos-2
+  checkpoint: checkpoints/chronos-2
+  device: cpu
+
+stream:
+  lookback: 96
+  horizon: 96
+  review_batch_records: 32
+  adapter_history_window: 128
+  adapter_cache_size: 2048
+  gate_half_life: 64
+  gate_lambda: 10.0
+  candidate_warmup_records: 32
+  candidate_evaluation_records: 64
+  max_active_candidates: 1
+
+api:
+  # DeepSeek 官方 OpenAI 兼容端点；换其他后端时只需改 base_url/model/api_key_env。
+  base_url: https://api.deepseek.com/v1
+  model: deepseek-chat
+  api_key_env: OPENAI_API_KEY
+  max_calls_per_session: 4
+  timeout_seconds: 120
+  # 可选：每百万 token 单价，仅用于 logs/api_calls.jsonl 里的费用估算。
+  # deepseek-chat 官方价（人民币，缓存未命中输入/输出）；不需要估算就删掉这两行。
+  input_price_per_mtok: 2.0
+  output_price_per_mtok: 8.0

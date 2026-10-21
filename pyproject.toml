@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ts-rsi"
+version = "0.1.0"
+description = "Streaming black-box time-series foundation-model adaptation with two local agents."
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26",
+  "pandas>=2.1",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+foundation = [
+  "torch>=2.1",
+  "chronos-forecasting>=2.1",
+  "uni2ts",
+  "timesfm",
+]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.6",
+  "mypy>=1.10",
+]
+
+[tool.setuptools.packages.find]
+include = ["ts_rsi*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
