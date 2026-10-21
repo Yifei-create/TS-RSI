@@ -11,13 +11,13 @@ from ts_rsi.adapters.materialize import materialize_adapter, seed_adapter_source
 from ts_rsi.config import load_config
 from ts_rsi.data.loader import fit_standardization, load_csv
 from ts_rsi.evaluation.metrics import loss_pair
-from ts_rsi.foundation.base import CallableForecaster
 from ts_rsi.foundation.frozen import load_frozen_foundation_model
 from ts_rsi.gating.discounted_ridge import DiscountedRidgeGate
-from ts_rsi.meta.agent import ApiMetaAgent, MetaAgent, WaitingMetaAgent
+from ts_rsi.meta.agent import ApiMetaAgent
 from ts_rsi.meta.api_client import OpenAICompatibleClient
 from ts_rsi.meta.api_log import ApiCallLogger, ApiPrices
 from ts_rsi.meta.orchestrator import MetaReviewOrchestrator
+from ts_rsi.meta.prompts import load_meta_source, seed_meta_source
 from ts_rsi.revisions.manager import RevisionManager
 from ts_rsi.revisions.records import RevisionLog
 from ts_rsi.streaming.buffer import CompletedRecordBuffer
@@ -28,32 +28,21 @@ from ts_rsi.streaming.versioned import RunningVersion
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run the causal stream with an optional API-backed MetaAgent."
+        description="Run the causal stream with the API-backed MetaAgent."
     )
     parser.add_argument("--config", type=Path, default=Path("configs/experiment.yaml"))
     parser.add_argument("--data", type=Path, default=None)
-    parser.add_argument(
-        "--foundation",
-        choices=["frozen", "naive"],
-        default="frozen",
-        help="naive uses a repeat-last-value stand-in; no checkpoint download needed.",
-    )
-    parser.add_argument(
-        "--max-origins",
-        type=int,
-        default=None,
-        help="Truncate the stream to N forecast origins for development runs.",
-    )
-    parser.add_argument(
-        "--no-meta",
-        action="store_true",
-        help="Force WaitingMetaAgent (fixed adapter, zero API calls) as the control arm.",
-    )
     parser.add_argument(
         "--device",
         type=str,
         default=None,
         help="Override foundation device, e.g. cuda:0; defaults to config value.",
+    )
+    parser.add_argument(
+        "--max-origins",
+        type=int,
+        default=None,
+        help="Truncate the stream to N forecast origins.",
     )
     parser.add_argument("--workspace", type=Path, default=Path("artifacts"))
     parser.add_argument(
@@ -76,14 +65,19 @@ def load_dotenv(path: Path) -> None:
         os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
-def build_meta_agent(config, force_waiting: bool = False) -> MetaAgent:
+def build_meta_agent(config, meta_root: Path) -> ApiMetaAgent:
     api = config.api
-    if not force_waiting and api.model and os.environ.get(api.api_key_env, ""):
-        client = OpenAICompatibleClient.from_environment(
-            api.base_url, api.model, api.api_key_env, api.timeout_seconds
+    if not api.model:
+        raise SystemExit("api.model is empty in the config; the MetaAgent requires an LLM API.")
+    if not os.environ.get(api.api_key_env, ""):
+        raise SystemExit(
+            f"Environment variable {api.api_key_env} is not set; "
+            "the MetaAgent requires an LLM API key (see .env.example)."
         )
-        return ApiMetaAgent("meta-v0", client, max_calls=api.max_calls_per_session)
-    return WaitingMetaAgent()
+    client = OpenAICompatibleClient.from_environment(
+        api.base_url, api.model, api.api_key_env, api.timeout_seconds
+    )
+    return ApiMetaAgent(client, load_meta_source(meta_root), max_calls=api.max_calls_per_session)
 
 
 def main() -> None:
@@ -106,12 +100,17 @@ def main() -> None:
     seed_adapter_source(
         adapter_root,
         configuration={
-            "type": "mean_residual",
-            "history_window": config.stream.adapter_history_window,
+            "type": "similarity_residual",
+            "k": config.stream.adapter_k,
             "cache_size": config.stream.adapter_cache_size,
+            "shrink": 1.0,
         },
     )
     adapter = materialize_adapter(adapter_root, version="adapter-v0", dimension=dimension)
+
+    meta_root = args.workspace / "meta_src"
+    seed_meta_source(meta_root)
+    meta_agent = build_meta_agent(config, meta_root)
 
     def gate_factory() -> DiscountedRidgeGate:
         return DiscountedRidgeGate(
@@ -121,20 +120,16 @@ def main() -> None:
             scale=scale,
         )
 
-    meta_agent = build_meta_agent(config, force_waiting=args.no_meta)
     versions = [RunningVersion(adapter=adapter, gate=gate_factory(), meta_version=meta_agent.version)]
 
-    if args.foundation == "naive":
-        foundation = CallableForecaster(lambda context_values, horizon: np.tile(context_values[-1], (horizon, 1)))
-    else:
-        foundation = load_frozen_foundation_model(
-            name=config.foundation.name,
-            checkpoint=config.foundation.checkpoint,
-            horizon=config.stream.horizon,
-            context_length=config.stream.lookback,
-            dimension=dimension,
-            device=args.device or config.foundation.device,
-        )
+    foundation = load_frozen_foundation_model(
+        name=config.foundation.name,
+        checkpoint=config.foundation.checkpoint,
+        horizon=config.stream.horizon,
+        context_length=config.stream.lookback,
+        dimension=dimension,
+        device=args.device or config.foundation.device,
+    )
 
     runner = CausalStreamRunner(
         values=values,
@@ -148,7 +143,7 @@ def main() -> None:
     )
     revision_log = RevisionLog(args.workspace / "revisions.jsonl")
     revision_manager = RevisionManager(args.workspace / "revision_workspace", revision_log)
-    run_tag = args.tag or f"{args.foundation}-{config.dataset.name}"
+    run_tag = args.tag or f"{config.foundation.name}-{config.dataset.name}"
     api_logger = ApiCallLogger(
         Path("logs") / f"api_calls-{run_tag}.jsonl",
         ApiPrices(
@@ -158,6 +153,7 @@ def main() -> None:
     )
     orchestrator = MetaReviewOrchestrator(
         meta_agent=meta_agent,
+        meta_root=meta_root,
         revision_manager=revision_manager,
         revision_log=revision_log,
         api_logger=api_logger,

@@ -24,6 +24,7 @@ class StreamConfig:
     review_batch_records: int
     adapter_history_window: int
     adapter_cache_size: int
+    adapter_k: int
     gate_half_life: float
     gate_lambda: float
     candidate_warmup_records: int
@@ -86,6 +87,7 @@ def load_config(path: Path) -> ExperimentConfig:
             review_batch_records=int(stream_raw["review_batch_records"]),
             adapter_history_window=int(stream_raw["adapter_history_window"]),
             adapter_cache_size=int(stream_raw["adapter_cache_size"]),
+            adapter_k=int(stream_raw.get("adapter_k", 16)),
             gate_half_life=float(stream_raw["gate_half_life"]),
             gate_lambda=float(stream_raw["gate_lambda"]),
             candidate_warmup_records=int(stream_raw["candidate_warmup_records"]),

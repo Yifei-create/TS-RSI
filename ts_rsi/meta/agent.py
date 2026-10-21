@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from abc import ABC, abstractmethod
 from dataclasses import asdict
 from typing import Any
 
 from ts_rsi.meta.api_client import ChatResponse, OpenAICompatibleClient
-from ts_rsi.meta.prompts import SYSTEM_PROMPT, build_repair_prompt, build_review_prompt
-from ts_rsi.types import AdapterDescription, RevisionProposal, RevisionRecord
+from ts_rsi.meta.prompts import build_repair_prompt, build_review_prompt
+from ts_rsi.types import RevisionProposal, RevisionRecord
 
 
 def parse_proposal(content: str) -> RevisionProposal:
@@ -25,6 +26,10 @@ def parse_proposal(content: str) -> RevisionProposal:
     )
 
 
+def meta_version_of(system_prompt: str) -> str:
+    return "meta-" + hashlib.sha1(system_prompt.encode("utf-8")).hexdigest()[:8]
+
+
 class MetaAgent(ABC):
     @property
     @abstractmethod
@@ -36,22 +41,22 @@ class MetaAgent(ABC):
         ...
 
 
-class WaitingMetaAgent(MetaAgent):
-    def __init__(self, version: str = "meta-v0") -> None:
-        self._version = version
-
-    @property
-    def version(self) -> str:
-        return self._version
-
-    def review(self, report: dict[str, Any], history: list[RevisionRecord]) -> RevisionProposal:
-        return RevisionProposal("WAIT", (), "API disabled", "", "", ())
-
-
 class ApiMetaAgent(MetaAgent):
-    def __init__(self, version: str, client: OpenAICompatibleClient, max_calls: int = 4) -> None:
-        self._version = version
+    """MetaAgent whose behavior is defined by its (editable) prompt files.
+
+    The system prompt text is the agent's identity: revising it produces a new
+    version. Every review and repair call goes through the configured LLM API.
+    """
+
+    def __init__(
+        self,
+        client: OpenAICompatibleClient,
+        system_prompt: str,
+        max_calls: int = 4,
+    ) -> None:
+        self._version = meta_version_of(system_prompt)
         self.client = client
+        self.system_prompt = system_prompt
         self.max_calls = max_calls
         self.calls = 0
         self.last_response: ChatResponse | None = None
@@ -68,7 +73,7 @@ class ApiMetaAgent(MetaAgent):
         if self.calls >= self.max_calls:
             raise RuntimeError("MetaAgent session call budget exhausted")
         self.calls += 1
-        response = self.client.complete(SYSTEM_PROMPT, user_prompt)
+        response = self.client.complete(self.system_prompt, user_prompt)
         self.last_response = response
         return parse_proposal(response.content)
 

@@ -33,6 +33,10 @@ class RunningVersion:
         target_indices = tuple(range(context.origin_index + 1, context.origin_index + 1 + base_forecast.shape[0]))
         if len(target_times) != base_forecast.shape[0]:
             raise ValueError("target_times must have one entry per forecast horizon")
+        metadata: dict[str, object] = {}
+        features = self.adapter.record_features(context, base_forecast)
+        if features is not None:
+            metadata["features"] = np.asarray(features, dtype=np.float64)
         return ForecastRecord(
             forecast_id=forecast_id,
             origin_index=context.origin_index,
@@ -45,6 +49,7 @@ class RunningVersion:
             raw_correction=correction.copy(),
             gate=gate.copy(),
             final_forecast=final.copy(),
+            metadata=metadata,
         )
 
     def update(self, matured: list[ForecastRecord]) -> None:

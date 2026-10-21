@@ -19,8 +19,9 @@ stream:
   review_batch_records: 32
   adapter_history_window: 128
   adapter_cache_size: 2048
+  adapter_k: 16
   gate_half_life: 64
-  gate_lambda: 0.01
+  gate_lambda: 1.0
   candidate_warmup_records: 32
   candidate_evaluation_records: 64
   max_active_candidates: 1

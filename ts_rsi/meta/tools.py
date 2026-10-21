@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,19 @@ class CandidateEditor:
             key = str(tool_input["key"])
             value = str(tool_input["value"])
             text = path.read_text(encoding="utf-8")
+            try:
+                document = json.loads(text)
+            except json.JSONDecodeError:
+                document = None
+            if isinstance(document, dict):
+                try:
+                    document[key] = json.loads(value)
+                except json.JSONDecodeError:
+                    document[key] = value
+                path.write_text(
+                    json.dumps(document, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+                )
+                return ToolExecutionResult(tool_name, True, "Config updated", (str(path),))
             prefix = f"{key}:"
             lines = text.splitlines(keepends=True)
             matches = [idx for idx, line in enumerate(lines) if line.startswith(prefix)]

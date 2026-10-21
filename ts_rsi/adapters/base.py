@@ -35,3 +35,12 @@ class AdapterAgent(ABC):
     @abstractmethod
     def configuration(self) -> dict[str, Any]:
         ...
+
+    def record_features(self, context: ForecastContext, base_forecast: np.ndarray) -> np.ndarray | None:
+        """Optional causal features of the current situation, stored on the record.
+
+        Adapters that correct by retrieving similar past situations must expose the
+        features they used at predict time so update() can pair them with the realized
+        residual later. Default: no features.
+        """
+        return None

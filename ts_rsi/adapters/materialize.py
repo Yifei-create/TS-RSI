@@ -13,17 +13,18 @@ import numpy as np
 from ts_rsi.adapters.base import AdapterAgent
 from ts_rsi.types import ForecastContext
 
-CANONICAL_ADAPTER_SOURCE = Path(__file__).resolve().parent / "mean_residual.py"
+CANONICAL_ADAPTER_SOURCE = Path(__file__).resolve().parent / "similarity_residual.py"
 
 _BUILD_ADAPTER_SNIPPET = '''
 
 
 def build_adapter(version, config, dimension):
     """Fixed construction contract used by the candidate trial harness."""
-    return MeanResidualAdapter(
+    return SimilarityResidualAdapter(
         version=version,
-        history_window=int(config["history_window"]),
+        k=int(config["k"]),
         cache_size=int(config["cache_size"]),
+        shrink=float(config.get("shrink", 1.0)),
         dimension=dimension,
     )
 '''
